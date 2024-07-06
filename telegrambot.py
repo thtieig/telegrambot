@@ -14,8 +14,10 @@ startup_chat_id = id_a[0]  # Replace with your chat/phone ID if different
 startup_message = f"Hey, just woke up man! It's {datetime.now().strftime('%d %B %Y - %I:%M %p')}"
 bot.sendMessage(startup_chat_id, startup_message)
 
-# File to store the generated exec password
+# File to store the generated exec password and attempt count
 password_file = '/tmp/exec_password.txt'
+attempt_file = '/tmp/exec_attempts.txt'
+max_attempts = 3
 
 def generate_password(length=12):
     import string
@@ -57,6 +59,8 @@ def handle(msg):
             generated_password = generate_password()
             with open(password_file, 'w') as f:
                 f.write(generated_password)
+            with open(attempt_file, 'w') as f:
+                f.write('0')
             send_email(
                 subject='Your exec Command Password',
                 body=f'PASSWORD: {generated_password}',
@@ -70,13 +74,40 @@ def handle(msg):
                 f.write(' '.join(command.split(' ')[1:]))
 
         elif command.startswith('PASSWORD'):
+            if not os.path.exists(password_file):
+                bot.sendMessage(chat_id, 'Password has expired or is invalid. Please generate a new exec command.')
+                return
+
+            # Ensure there's enough parts in the split command
+            parts = command.split(' ', 1)
+            if len(parts) < 2:
+                bot.sendMessage(chat_id, 'Invalid password format. Please reply with PASSWORD: yourpassword.')
+                return
+            
+            input_password = parts[1].strip()
+
             # Read the stored password
             with open(password_file, 'r') as f:
                 stored_password = f.read().strip()
 
-            input_password = command.split(' ', 1)[1].strip()
             if input_password != stored_password:
-                bot.sendMessage(chat_id, 'Unauthorized access attempt!')
+                # Increment the failed attempts count
+                with open(attempt_file, 'r') as f:
+                    attempts = int(f.read().strip())
+                attempts += 1
+                with open(attempt_file, 'w') as f:
+                    f.write(str(attempts))
+                if attempts >= max_attempts:
+                    bot.sendMessage(chat_id, 'Too many failed attempts. The password has expired.')
+                    # Clean up the temporary files after expiration
+                    if os.path.exists(password_file):
+                        os.remove(password_file)
+                    if os.path.exists(attempt_file):
+                        os.remove(attempt_file)
+                    if os.path.exists('/tmp/temp_command.txt'):
+                        os.remove('/tmp/temp_command.txt')
+                else:
+                    bot.sendMessage(chat_id, f'Unauthorized access attempt! {max_attempts - attempts} attempts left.')
                 return
 
             # Read the stored command
@@ -111,6 +142,8 @@ def handle(msg):
                     os.remove(password_file)
                 if os.path.exists(temp_command_file):
                     os.remove(temp_command_file)
+                if os.path.exists(attempt_file):
+                    os.remove(attempt_file)
             except Exception as e:
                 bot.sendMessage(chat_id, f'Error executing command: {str(e)}')
 
