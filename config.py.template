@@ -25,3 +25,4 @@
 id_a = []
 username = ['']
 bot_token = ''
+password_suffix = ''

@@ -51,3 +51,9 @@ Thumbs.db
 # Telegrambot
 config.py
 telegrambot.py.*
+temp*
+TEMP*
+tmp*
+*.tmp
+old*
+OLD*
