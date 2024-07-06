@@ -50,3 +50,4 @@ Thumbs.db
 
 # Telegrambot
 config.py
+telegrambot.py.*
