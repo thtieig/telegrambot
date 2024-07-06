@@ -1,0 +1,14 @@
+#!/bin/bash
+
+# Place this file in /usr/local/bin/telegrambot_start
+# make sure is chmod +x
+# Update "full_path_where_script_is_stored" with the actual path before copying/executing
+
+# kill process if running
+for PID in $(ps aux | grep -i "[p]ython.*telegrambot.py" | awk '{print $2}') ; do 
+   kill -9 $PID > /dev/null 2>&1
+done
+
+# restart process
+python /full_path_where_script_is_stored/TelegramBot/telegrambot.py 2>&1 | /usr/bin/logger -t telegrambot &
+
