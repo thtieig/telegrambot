@@ -1,67 +1,201 @@
-import os, subprocess, time
+import os
+import subprocess
+import time
 import telepot
-from config import id_a, username, bot_token
+import smtplib
+from email.mime.text import MIMEText
+from datetime import datetime
+from config import id_a, username, bot_token, recipient_email, email_address, email_password, smtp_server, smtp_port
 
 bot = telepot.Bot(bot_token)
 
-# Send a startup message
+# Send a startup message with current date and time
 startup_chat_id = id_a[0]  # Replace with your chat/phone ID if different
-bot.sendMessage(startup_chat_id, "Hey, just woke up man!")
+startup_message = f"Hey, just woke up man! It's {datetime.now().strftime('%d %B %Y - %I:%M %p')}"
+bot.sendMessage(startup_chat_id, startup_message)
+
+# File to store the generated exec password and attempt count
+password_file = '/tmp/exec_password.txt'
+attempt_file = '/tmp/exec_attempts.txt'
+max_attempts = 3
+
+def generate_password(length=12):
+    import string
+    import random
+    characters = string.ascii_letters + string.digits + string.punctuation
+    return ''.join(random.choice(characters) for i in range(length))
+
+def send_email(subject, body, to):
+    msg = MIMEText(body)
+    msg['Subject'] = subject
+    msg['From'] = email_address
+    msg['To'] = to
+
+    with smtplib.SMTP(smtp_server, smtp_port) as server:
+        server.starttls()
+        server.login(email_address, email_password)
+        server.sendmail(email_address, to, msg.as_string())
 
 def execute_command(command_list):
     try:
-        result = subprocess.check_output(command_list).decode('utf-8')
+        result = subprocess.check_output(command_list, stderr=subprocess.STDOUT).decode('utf-8')
     except subprocess.CalledProcessError as e:
-        result = str(e)
+        result = str(e.output.decode('utf-8'))
+    except Exception as e:
+        result = f'Error executing command: {str(e)}'
     return result
 
 def handle(msg):
     chat_id = msg['chat']['id']
-    command = msg['text']
+    command = msg['text'].strip()
     sender = msg['from']['id']
     isbot = msg['from']['is_bot']
     user = msg['from']['username']
     print('Got command: %s' % command)
 
     if sender in id_a and not isbot and user in username:
-        command_dict = {
-            'uptime': ['uptime'],
-            'df': ['df', '-h'],
-            'last': ['last'],
-            'vpn-restart': ['sudo', 'systemctl', 'restart', 'openvpn.service'],
-            'kodi stop': ['sudo', 'manage_kodi', 'off'],
-            'kodi start': ['sudo', 'manage_kodi', 'on'],
-            'upgrade raspbxino': ['sudo', 'upgrade_raspbxino'],
-            'tunnel-ssh': ['/usr/local/bin/ssh-port-forward.sh']
-        }
+        if command.startswith('exec'):
+            # Generate a temporary password
+            generated_password = generate_password()
+            with open(password_file, 'w') as f:
+                f.write(generated_password)
+            with open(attempt_file, 'w') as f:
+                f.write('0')
+            send_email(
+                subject='Your exec Command Password',
+                body=f'PASSWORD: {generated_password}',
+                to=recipient_email
+            )
+            bot.sendMessage(chat_id, 'A temporary password has been sent to your email. Please reply with PASSWORD: yourpassword to execute the command.')
 
-        if command in command_dict:
-            result = execute_command(command_dict[command])
-            bot.sendMessage(chat_id, result)
-        elif command.startswith('restart'):
-            cmd = command.split('restart', 1)[1].strip()
-            device_dict = {
-                'router': ['sudo', 'restart_device', 'router'],
-                'raspberrino': ['sudo', 'restart_device', 'raspberrino'],
-                'raspbxino': ['sudo', 'restart_device', 'raspbxino']
+            # Save the command to be executed
+            temp_command_file = '/tmp/temp_command.txt'
+            with open(temp_command_file, 'w') as f:
+                f.write(' '.join(command.split(' ')[1:]))
+
+        elif command.startswith('PASSWORD'):
+            if not os.path.exists(password_file):
+                bot.sendMessage(chat_id, 'Password has expired or is invalid. Please generate a new exec command.')
+                return
+
+            # Ensure there's enough parts in the split command
+            parts = command.split(' ', 1)
+            if len(parts) < 2:
+                bot.sendMessage(chat_id, 'Invalid password format. Please reply with PASSWORD: yourpassword.')
+                return
+            
+            input_password = parts[1].strip()
+
+            # Read the stored password
+            with open(password_file, 'r') as f:
+                stored_password = f.read().strip()
+
+            if input_password != stored_password:
+                # Increment the failed attempts count
+                with open(attempt_file, 'r') as f:
+                    attempts = int(f.read().strip())
+                attempts += 1
+                with open(attempt_file, 'w') as f:
+                    f.write(str(attempts))
+                if attempts >= max_attempts:
+                    bot.sendMessage(chat_id, 'Too many failed attempts. The password has expired.')
+                    # Clean up the temporary files after expiration
+                    if os.path.exists(password_file):
+                        os.remove(password_file)
+                    if os.path.exists(attempt_file):
+                        os.remove(attempt_file)
+                    if os.path.exists('/tmp/temp_command.txt'):
+                        os.remove('/tmp/temp_command.txt')
+                else:
+                    bot.sendMessage(chat_id, f'Unauthorized access attempt! {max_attempts - attempts} attempts left.')
+                return
+
+            # Read the stored command
+            temp_command_file = '/tmp/temp_command.txt'
+            with open(temp_command_file, 'r') as f:
+                command_to_execute = f.read().strip()
+
+            # Generate a temporary script file
+            temp_script_path = '/tmp/temp-telegram-script.sh'
+            with open(temp_script_path, 'w') as f:
+                f.write(f'#!/bin/bash\n\n')
+                f.write(f'# Script generated by Telegram bot at {datetime.now()}\n')
+                f.write(f'# Command to execute: {command_to_execute}\n')
+                f.write(f'{command_to_execute}\n')
+
+            # Make the script executable
+            os.chmod(temp_script_path, 0o755)
+
+            # Print debug information
+            print(f'Temporary script path: {temp_script_path}')
+            print(f'Temporary script content:\n{open(temp_script_path).read()}')
+
+            # Execute the script with sudo and capture the result
+            try:
+                result = execute_command(['sudo', temp_script_path])
+
+                # Send the result back to Telegram
+                bot.sendMessage(chat_id, f'Command execution result:\n\n{result}')
+                
+                # Clean up the temporary files after successful execution
+                if os.path.exists(password_file):
+                    os.remove(password_file)
+                if os.path.exists(temp_command_file):
+                    os.remove(temp_command_file)
+                if os.path.exists(attempt_file):
+                    os.remove(attempt_file)
+            except Exception as e:
+                bot.sendMessage(chat_id, f'Error executing command: {str(e)}')
+
+            # Clean up the temporary script file
+            if os.path.exists(temp_script_path):
+                os.remove(temp_script_path)
+
+        else:
+            command_dict = {
+                'uptime': ['uptime'],
+                'df': ['df', '-h'],
+                'last': ['last'],
+                'vpn-restart': ['sudo', 'systemctl', 'restart', 'openvpn.service'],
+                'kodi stop': ['sudo', 'manage_kodi', 'off'],
+                'kodi start': ['sudo', 'manage_kodi', 'on'],
+                'upgrade raspbxino': ['sudo', 'upgrade_raspbxino'],
+                'tunnel-ssh': ['/usr/local/bin/ssh-port-forward.sh'],
+                'exec <custom shell command - use at your own risk>': []
             }
 
-            if cmd in device_dict:
-                result = execute_command(device_dict[cmd])
+            if command in command_dict:
+                result = execute_command(command_dict[command])
                 bot.sendMessage(chat_id, result)
+            elif command.startswith('restart'):
+                cmd = command.split('restart', 1)[1].strip()
+                device_dict = {
+                    'router': ['sudo', 'restart_device', 'router'],
+                    'raspberrino': ['sudo', 'restart_device', 'raspberrino'],
+                    'raspbxino': ['sudo', 'restart_device', 'raspbxino']
+                }
+
+                if cmd in device_dict:
+                    result = execute_command(device_dict[cmd])
+                    bot.sendMessage(chat_id, result)
+                else:
+                    msg = 'Usage: restart (router|raspberrino|raspbxino)'
+                    bot.sendMessage(chat_id, msg)
             else:
-                msg = 'Usage: restart (router|raspberrino|raspbxino)'
+                msg = 'Commands available:\n' + '\n'.join(command_dict.keys()) + '\nrestart <device>'
                 bot.sendMessage(chat_id, msg)
-        else:
-            msg = 'Commands available:\n' + '\n'.join(command_dict.keys()) + '\nrestart <device>'
-            bot.sendMessage(chat_id, msg)
     else:
         bot.sendMessage(chat_id, 'Forbidden access!')
 
 bot.message_loop(handle)
 print('I am listening...')
 
-while 1:
+# Clean up the temporary script file at startup if it exists
+temp_script_path = '/tmp/temp-telegram-script.sh'
+if os.path.exists(temp_script_path):
+    os.remove(temp_script_path)
+
+while True:
     try:
         time.sleep(10)
     except KeyboardInterrupt:
@@ -69,4 +203,3 @@ while 1:
         exit()
     except Exception as e:
         print('Other error or exception occurred:', e)
-

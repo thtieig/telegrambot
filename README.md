@@ -6,7 +6,15 @@ In fact, you will create your own Telegram Bot, and you'll be able to run comman
 ### What is this repository for? ###
 
 * Telegram Bot
-* 2.0
+* version 3.0
+
+#### What has been added in version 3.0?
+* New `exec` function that allows you to pass a full shell command via Telegram bot. This is a very DANGEROUS risk than can DESTROY completely your server and setup. However, in case of emergencies, it can save you. Use it wisely. And yes, they will run as `root`!
+* Random generated password, required to run any command issued via `exec` fuction. This is a way to be sure you're the one running the command.  
+* 3 attempts before the password expires. 
+* Password sent via email (this needs to be configured in the `config.py` script)
+
+NOTE: the `exec` function works ONLY if you set the script to send you the password via email. The script requires smtp, username and password to send the email, and of course, the recepient who's going to receive the email. Without the password, no `exec` commands can be executed.
 
 ### How do I get set up? ###
 
@@ -27,6 +35,7 @@ myuser ALL=(ALL) NOPASSWD:/usr/local/bin/restart_device
 myuser ALL=(ALL) NOPASSWD:/usr/local/bin/manage_kodi
 myuser ALL=(ALL) NOPASSWD:/usr/local/bin/upgrade_raspbxino
 myuser ALL=(ALL) NOPASSWD:/bin/systemctl restart openvpn.service
+myuser ALL=(ALL) NOPASSWD:/tmp/temp-telegram-script.sh
 ```
 
 I have custom scripts into `/usr/local/bin` and those scripts require root privileges.  
