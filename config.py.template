@@ -1,0 +1,27 @@
+###############################################################################
+# >>>>>>>>>>>>>>>>>>>>>       TianBot script       <<<<<<<<<<<<<<<<<<<<<<<<<<< #
+################################################################################
+# coder :- Chris Tian and ChatGPT
+
+# Version: 2.0
+
+
+# 1) Create Telegram bot
+# New Telegram bot instruction here: https://www.hackster.io/Salmanfarisvp/telegram-bot-with-raspberry-pi-f373da
+
+# 2) Run this script
+# Original source: https://github.com/salmanfarisvp/TelegramBot.git
+# Ref. https://www.hackster.io/Salman_faris_vp/telegram-bot-with-raspberry-pi-f373da
+
+##############################
+# To get the phone ID (id_a) #
+##############################
+# 1) stop this script
+# 2) send a message to this bot from the new phone
+# 3) curl -X GET  https://api.telegram.org/<TOKEN>/getUpdates
+# 4) Get the ID from the output of the previous API call
+
+# config.py
+id_a = []
+username = ['']
+bot_token = ''

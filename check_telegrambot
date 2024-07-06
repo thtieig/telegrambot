@@ -1,0 +1,24 @@
+#!/bin/bash
+
+####################################################################################
+# user 'nagios' needs to be allowed to run 'netstat' using sudo
+# and /usr/local/bin/telegrambot_start to run as 'chris'
+# 
+# Required lines in visudo:
+#
+#    Cmnd_Alias TELEGRAMBOT_CMD = /bin/su - chris -c /usr/local/bin/telegrambot_start
+#    nagios ALL=(ALL) NOPASSWD:/bin/netstat,TELEGRAMBOT_CMD
+#
+####################################################################################
+
+sudo netstat -pant | grep -q "ESTABLISHED.*python"
+
+if [ $? -eq 0 ] ; then
+   echo "OK- TelegramBot is up and running"
+   exit 0
+else
+   echo "CRITICAL- TelegramBot service stopped or not connected. Attempting to restart."
+   sudo su - chris -c /usr/local/bin/telegrambot_start
+   exit 2
+fi
+
