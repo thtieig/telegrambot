@@ -14,8 +14,8 @@ startup_chat_id = id_a[0]  # Replace with your chat/phone ID if different
 startup_message = f"Hey, just woke up man! It's {datetime.now().strftime('%d %B %Y - %I:%M %p')}"
 bot.sendMessage(startup_chat_id, startup_message)
 
-# File to store the generated esegui password
-password_file = '/tmp/esegui_password.txt'
+# File to store the generated exec password
+password_file = '/tmp/exec_password.txt'
 
 def generate_password(length=12):
     import string
@@ -52,13 +52,13 @@ def handle(msg):
     print('Got command: %s' % command)
 
     if sender in id_a and not isbot and user in username:
-        if command.startswith('esegui'):
+        if command.startswith('exec'):
             # Generate a temporary password
             generated_password = generate_password()
             with open(password_file, 'w') as f:
                 f.write(generated_password)
             send_email(
-                subject='Your esegui Command Password',
+                subject='Your exec Command Password',
                 body=f'PASSWORD: {generated_password}',
                 to=recipient_email
             )
@@ -127,7 +127,8 @@ def handle(msg):
                 'kodi stop': ['sudo', 'manage_kodi', 'off'],
                 'kodi start': ['sudo', 'manage_kodi', 'on'],
                 'upgrade raspbxino': ['sudo', 'upgrade_raspbxino'],
-                'tunnel-ssh': ['/usr/local/bin/ssh-port-forward.sh']
+                'tunnel-ssh': ['/usr/local/bin/ssh-port-forward.sh'],
+                'exec <custom shell command - use at your own risk>': []
             }
 
             if command in command_dict:
