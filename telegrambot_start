@@ -10,5 +10,5 @@ for PID in $(ps aux | grep -i "[p]ython.*telegrambot.py" | awk '{print $2}') ; d
 done
 
 # restart process
-python /full_path_where_script_is_stored/TelegramBot/telegrambot.py 2>&1 | /usr/bin/logger -t telegrambot &
+bash -c 'source /full_path_where_script_is_stored/TelegramBot/telegram_bot/bin/activate && python /full_path_where_script_is_stored/TelegramBot/telegrambot.py 2>&1 | /usr/bin/logger -t telegrambot' &
 
