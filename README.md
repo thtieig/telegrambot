@@ -25,6 +25,7 @@ NOTE: the `exec` function works ONLY if you set the script to send you the passw
 
 * Clone the repository
 * Make sure Python 3.11+ is installed
+* Make sure the Debian/Linux package `logger` is installed too (if you use the custom startup script that logs automatically)
 * Create a Python virtual environment (recommended for isolation):
     ```bash
     python3 -m venv telegram_bot
