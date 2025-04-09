@@ -1,0 +1,7 @@
+# Core dependency for Telegram bot interaction
+python-telegram-bot>=20.0
+nest_asyncio
+
+# Optional: for environment management and compatibility
+certifi>=2023.0.0
+
