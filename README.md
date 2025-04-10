@@ -61,13 +61,20 @@ user `myuser` (the one who is running this Telegram bot script) has to be proper
 
 **Don't forget this step** ;-)
 
-#### If you want to automate the startup of the script
+#### Scripts in utils folder
+In the folder `utils` you can find some scripts that could be handy to automate some functions like autostart at boot, monitoring checks etc.In the folder `utils` you can find some scripts that could be handy to automate some functions like autostart at boot, monitoring checks etc.  
 
-* Edit the `telegrambot_start` script with the full path and move that file into `/usr/local/bin`
-* Check `rc.local`, update accordingly and add those lines into your `/etc/rc.local` script to make sure the script runs at startup
+The scripts require some changes/updates and modifications before being fully functional: make sure to EDIT/UPDATE them before installing them.  
 
-#### Optional
+Here the list of the files:  
 
-You can find `check_telegrambot` and `check_telegrambot_connection` files.
-These are files that can be used with Nagios to monitor this script.
+* telegrambot_start.example: this script can be used to automatically start your bot using the suggested Python custom environment. Ideally copied in `/usr/local/bin/telegrambot_start`. Make sure to `chmod +x` the file and to update the file using the right path/username.
+* check_telegrambot_connection.monit-check: this script can be used with Monit to verify if the bot is running. Ideally copied in `/usr/local/bin/check_telegrambot_connection`. Make sure to `chmod +x` the file.
+* telegrambot.monit-config: this is a sample of Monit config file. You can copy it in `/etc/monit/conf-available/telegram_bot` (make sure to update the script with the right user) and enable it, as per Monit's instructions.
+* rc.local.append: you can append the content of this file to your `rc.local` file to automatically start the script at boot. Make sure to update it with the actual user that's going to run the Telegram bot script BEFORE appending to `rc.local`. 
+* check_telegrambot.nagios: This is an old script for Nagios. I'm NO LONGER maintaining it, but you can use it as example.
 
+
+## License
+-------
+This project is licensed under the [MIT License](https://opensource.org/licenses/MIT).

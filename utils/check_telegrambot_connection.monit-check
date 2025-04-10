@@ -1,0 +1,28 @@
+#!/bin/bash
+
+# This script can be used with Monit to verify if the bot is running
+# Copy this script in /usr/local/bin/check_telegrambot_connection
+
+####################################################################################
+# Return exit code 0 if connected
+####################################################################################
+
+if [ "$EUID" -ne 0 ]
+  then echo "Please run as root"
+  exit
+fi
+
+netstat -pant | grep -q "ESTABLISHED.*python"
+#!/bin/bash
+
+####################################################################################
+# Return exit code 0 if connected
+####################################################################################
+
+if [ "$EUID" -ne 0 ]
+  then echo "Please run as root"
+  exit
+fi
+
+netstat -pant | grep -q "ESTABLISHED.*python"
+

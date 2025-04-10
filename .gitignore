@@ -58,3 +58,8 @@ tmp*
 old*
 OLD*
 telegram_bot
+utils/check_telegrambot_connection
+utils/check_telegrambot
+utils/telegrambot.monit
+utils/rc.local
+utils/telegrambot_start

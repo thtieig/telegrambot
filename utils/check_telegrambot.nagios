@@ -1,12 +1,14 @@
 #!/bin/bash
 
+# NOTE: This script is NO LONGER maintained - please use just as reference
+
 ####################################################################################
 # user 'nagios' needs to be allowed to run 'netstat' using sudo
-# and /usr/local/bin/telegrambot_start to run as 'chris'
+# and /usr/local/bin/telegrambot_start to run as 'user1'
 # 
 # Required lines in visudo:
 #
-#    Cmnd_Alias TELEGRAMBOT_CMD = /bin/su - chris -c /usr/local/bin/telegrambot_start
+#    Cmnd_Alias TELEGRAMBOT_CMD = /bin/su - user1 -c /usr/local/bin/telegrambot_start
 #    nagios ALL=(ALL) NOPASSWD:/bin/netstat,TELEGRAMBOT_CMD
 #
 ####################################################################################
@@ -18,7 +20,6 @@ if [ $? -eq 0 ] ; then
    exit 0
 else
    echo "CRITICAL- TelegramBot service stopped or not connected. Attempting to restart."
-   sudo su - chris -c /usr/local/bin/telegrambot_start
+   sudo su - user1 -c /usr/local/bin/telegrambot_start
    exit 2
 fi
-
