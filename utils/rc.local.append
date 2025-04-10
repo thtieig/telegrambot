@@ -2,9 +2,9 @@
 # Easy way to start the script automatically at boot
 #
 # Append this content to your /etc/rc.local file
-# Make sure to replace the "replace_with_your_username" with the actual
+# Make sure to replace the "user1" with the actual
 # user that's going to run the script (avoid root if you can)
 
 echo "Starting TelegramBot service" | logger -t "boot"
-su - replace_with_your_username -c /usr/local/bin/telegrambot_start
+su - user1 -c /usr/local/bin/telegrambot_start
 

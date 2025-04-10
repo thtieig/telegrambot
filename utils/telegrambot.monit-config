@@ -1,0 +1,3 @@
+check program TelegramBot with path /usr/local/bin/check_telegrambot_connection
+with timeout 10 seconds
+if status != 0 then exec "/bin/su - user1 -c /usr/local/bin/telegrambot_start"
