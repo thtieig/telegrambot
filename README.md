@@ -6,7 +6,7 @@ In fact, you will create your own Telegram Bot, and you'll be able to run comman
 ### What is this repository for? ###
 
 * Telegram Bot
-* Version 4.0
+* Version 4.1
 
 #### What has been added in version 4.0?
 * Python isolation installation instructions - to follow best practises.

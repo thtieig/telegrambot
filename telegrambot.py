@@ -8,14 +8,15 @@ import string
 import random
 from email.mime.text import MIMEText
 from datetime import datetime
-from config import id_a, username, bot_token, recipient_email, email_address, email_password, smtp_server, smtp_port
+from config import id_a, username, bot_token, recipient_email, email_address, email_password, smtp_server, smtp_port, log_level
 from telegram import Update
 from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, CommandHandler, filters
 import asyncio
 import nest_asyncio
 
-# Configure logging
-logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
+# Configure logging using the config value
+numeric_level = getattr(logging, log_level.upper(), logging.INFO)
+logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=numeric_level)
 logger = logging.getLogger(__name__)
 
 # File paths
