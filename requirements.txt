@@ -5,3 +5,13 @@ nest_asyncio
 # Optional: for environment management and compatibility
 certifi>=2023.0.0
 
+# HTTP and HTML parsing
+requests
+beautifulsoup4
+
+# Optional dependencies for better HTML parsing and readability extraction
+# If available, these improve the URL fetch feature.
+# Install system-level lxml or comment these lines if not needed:
+# lxml
+# readability-lxml
+
