@@ -108,7 +108,7 @@ def main():
     if len(cleaned) > args.max_chars:
         cleaned = cleaned[:args.max_chars].rstrip() + "\n\n[Output truncated]"
 
-    print(cleaned)
+    print(cleaned.encode('utf-8', errors='replace').decode('utf-8'))
 
 
 if __name__ == "__main__":
