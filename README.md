@@ -85,6 +85,12 @@ NOTE: the `exec` function works ONLY if you set the script to send you the passw
 
 * Edit `telegrambot.py` accordingly. This is the main file where you can set all your actions. Mine is an example.
 
+* Do not move the `fetch_clean_url.py` script out of the `utils/` folder: the bot calls it by relative path `utils/fetch_clean_url.py` from its own directory. Just make sure it is executable:
+
+  ```bash
+  chmod +x utils/fetch_clean_url.py
+  ```
+
 * Test running `python telegrambot.py` from inside the virtual environment.
 
 > NOTE: This script uses the `python-telegram-bot` library with asynchronous functions. On environments like Raspberry Pi OS you may encounter issues with `asyncio` because of an already running event loop. This is automatically handled using `nest_asyncio`.
@@ -131,63 +137,24 @@ Here is the list of the files:
 
 ---
 
-### Helper script: fetch\_clean\_url.py (URL fetch feature)
+### Helper script for fetching clean web page text
 
-The URL fetch feature is implemented in a small helper script located in the `utils` folder: `utils/fetch_clean_url.py`. The main bot looks for it at a path you define in `telegrambot.py` (constant `FETCH_SCRIPT`). Example path: `/home/myuser/scripts/telegrambot/utils/fetch_clean_url.py`.
+This could be handy if you're on the plane, with free messages only, but you have a few articles that you wanted to finish to read.  
+The bot supports fetching and cleaning webpage content via a helper script located at `utils/fetch_clean_url.py`.
+* The script fetches the given URL and extracts the main readable text, stripping away ads, navigation, and other clutter.
+* The Telegram bot calls this script internally using a relative path, so do not move the script out of the `utils/` folder.
+* Make sure the script is executable:
+  ```bash
+   chmod +x utils/fetch_clean_url.py
+  ```
+* You can test the script manually by running:
+  ```bash
+  python utils/fetch_clean_url.py <URL>
+  ```
+* The script outputs clean UTF-8 text, and the bot automatically splits long results into multiple Telegram messages to avoid Telegram's message size limits.
 
-**Install** (optional if you want to move it globally):
 
-```bash
-sudo install -m 0755 utils/fetch_clean_url.py /usr/local/bin/fetch_clean_url.py
-```
-
-(Or run directly from the `utils` folder and adjust the path in `telegrambot.py`.)
-
-**Usage** (manual test):
-
-```bash
-python utils/fetch_clean_url.py https://www.python.org/
-```
-
-**From Telegram**: in a chat with your authorised bot user, send:
-
-```
-url https://www.bbc.co.uk/news
-```
-
-or simply paste the link:
-
-```
-https://www.bbc.co.uk/news
-```
-
-The bot replies with cleaned text. Long pages are split into multiple messages to stay under Telegram's message size limit.
-
----
-
-### requirements.txt (example)
-
-Below is a sample `requirements.txt` that matches the current release. `lxml` and `readability-lxml` are commented out so you can enable them when you are ready.
-
-```text
-# Core dependency for Telegram bot interaction
-python-telegram-bot>=20.0
-nest_asyncio
-
-# Optional: for environment management and compatibility
-certifi>=2023.0.0
-
-# HTTP and HTML parsing
-requests
-beautifulsoup4
-
-# Optional dependencies for better HTML parsing and readability extraction
-# Uncomment if you have the build deps installed (or system python3-lxml) and want improved parsing
-# lxml
-# readability-lxml
-```
-
----
+--
 
 ## License
 
