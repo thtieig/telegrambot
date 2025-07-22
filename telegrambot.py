@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 import os
 import subprocess
 import time
@@ -6,6 +7,7 @@ import asyncio
 import logging
 import string
 import random
+import re
 from email.mime.text import MIMEText
 from datetime import datetime
 from config import id_a, username, bot_token, recipient_email, email_address, email_password, smtp_server, smtp_port, log_level
@@ -26,11 +28,19 @@ temp_command_file = '/tmp/temp_command.txt'
 temp_script_path = '/tmp/temp-telegram-script.sh'
 max_attempts = 3
 
+# Telegram message length safety margin
+TELEGRAM_CHUNK_SIZE = 3500  # below 4096 limit to allow formatting overhead
+
+# Path to helper script that fetches and cleans URLs
+FETCH_SCRIPT = '/usr/local/bin/fetch_clean_url.py'
+
+
 # Startup message
 async def startup_message(app):
     chat_id = id_a[0]
-    msg = f"Hey, just woke up man! It's {datetime.now().strftime('%d %B %Y - %I:%M %p')}"
+    msg = f"Hey, just woke up man! It is {datetime.now().strftime('%d %B %Y - %I:%M %p')}"
     await app.bot.send_message(chat_id=chat_id, text=msg)
+
 
 # Email sender
 def send_email(subject, body, to):
@@ -44,20 +54,36 @@ def send_email(subject, body, to):
         server.login(email_address, email_password)
         server.sendmail(email_address, to, msg.as_string())
 
+
 # Generate a random password
 def generate_password(length=12):
     characters = string.ascii_letters + string.digits + string.punctuation
     return ''.join(random.choice(characters) for _ in range(length))
 
+
 # Execute a shell command
 def execute_command(command_list):
     try:
-        result = subprocess.check_output(command_list, stderr=subprocess.STDOUT).decode('utf-8')
+        result = subprocess.check_output(command_list, stderr=subprocess.STDOUT).decode('utf-8', errors='replace')
     except subprocess.CalledProcessError as e:
-        result = str(e.output.decode('utf-8'))
+        result = str(e.output.decode('utf-8', errors='replace'))
     except Exception as e:
         result = f'Error executing command: {str(e)}'
     return result
+
+
+async def send_chunked_text(message, text, chunk_size=TELEGRAM_CHUNK_SIZE):
+    """Split long text into Telegram friendly chunks."""
+    if not text:
+        await message.reply_text('[no text returned]')
+        return
+    for i in range(0, len(text), chunk_size):
+        await message.reply_text(text[i:i + chunk_size])
+
+
+def is_url_like(text: str) -> bool:
+    return bool(re.match(r'^\s*https?://', text, re.IGNORECASE))
+
 
 # Handle all messages
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -70,10 +96,38 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     logger.info(f"Got command: {command}")
 
+    # Authorisation gate
     if user_id not in id_a or is_bot or username_input not in username:
         await message.reply_text('Forbidden access!')
         return
 
+    # New: URL fetch branch
+    # Accept any of:
+    #   url <http://...>
+    #   fetch <http://...>
+    #   <http://...> (bare URL)
+    lower_cmd = command.lower()
+    url = None
+    if lower_cmd.startswith('url '):
+        url = command.split(' ', 1)[1].strip()
+    elif lower_cmd.startswith('fetch '):
+        url = command.split(' ', 1)[1].strip()
+    elif is_url_like(command):
+        url = command.strip()
+
+    if url:
+        # Run helper script
+        if not os.path.exists(FETCH_SCRIPT) or not os.access(FETCH_SCRIPT, os.X_OK):
+            await message.reply_text(f'Fetch script not found or not executable at {FETCH_SCRIPT}')
+            return
+
+        logger.info(f"Fetching URL: {url}")
+        result = execute_command(['python3', FETCH_SCRIPT, url])
+        # The helper prints errors to stderr but execute_command merges them; just send back
+        await send_chunked_text(message, result)
+        return
+
+    # Existing exec flow
     if command.startswith('exec'):
         password = generate_password()
         with open(password_file, 'w') as f:
@@ -164,8 +218,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             else:
                 await message.reply_text('Usage: restart (router|raspberrino|raspbxino)')
         else:
-            cmds = '\n'.join(list(command_dict.keys()) + ['restart <device>', 'exec <custom shell command - use at your own risk>'])
+            cmds = '\n'.join(
+                list(command_dict.keys())
+                + ['restart <device>',
+                   'exec <custom shell command - use at your own risk>',
+                   'url <http[s]://...> - fetch a web page and return clean text']
+            )
             await message.reply_text(f'Commands available:\n{cmds}')
+
 
 # Main application
 async def main():
@@ -180,8 +240,8 @@ async def main():
     await startup_message(app)
     await app.run_polling()
 
+
 if __name__ == '__main__':
     nest_asyncio.apply()
     asyncio.run(main())
-
 
