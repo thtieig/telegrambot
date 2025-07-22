@@ -10,16 +10,33 @@ import random
 import re
 from email.mime.text import MIMEText
 from datetime import datetime
-from config import id_a, username, bot_token, recipient_email, email_address, email_password, smtp_server, smtp_port, log_level
+
+from config import (
+    id_a,
+    username,
+    bot_token,
+    recipient_email,
+    email_address,
+    email_password,
+    smtp_server,
+    smtp_port,
+    log_level,
+)
+
 from telegram import Update
 from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, CommandHandler, filters
 import asyncio
 import nest_asyncio
 
+
 # Configure logging using the config value
 numeric_level = getattr(logging, log_level.upper(), logging.INFO)
-logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=numeric_level)
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=numeric_level,
+)
 logger = logging.getLogger(__name__)
+
 
 # File paths
 password_file = '/tmp/exec_password.txt'
@@ -29,10 +46,13 @@ temp_script_path = '/tmp/temp-telegram-script.sh'
 max_attempts = 3
 
 # Telegram message length safety margin
-TELEGRAM_CHUNK_SIZE = 3500  # below 4096 limit to allow formatting overhead
+# Telegram hard limit is 4096 chars. Stay below to allow for formatting overhead.
+TELEGRAM_CHUNK_SIZE = 3500
 
-# Path to helper script that fetches and cleans URLs
-FETCH_SCRIPT = '/usr/local/bin/fetch_clean_url.py'
+# Path to helper script that fetches and cleans URLs.
+# We resolve it relative to this file so the bot works wherever the repo lives.
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+FETCH_SCRIPT = os.path.join(SCRIPT_DIR, 'utils', 'fetch_clean_url.py')
 
 
 # Startup message
@@ -64,25 +84,71 @@ def generate_password(length=12):
 # Execute a shell command
 def execute_command(command_list):
     try:
-        result = subprocess.check_output(command_list, stderr=subprocess.STDOUT).decode('utf-8', errors='replace')
+        result = subprocess.check_output(
+            command_list,
+            stderr=subprocess.STDOUT,
+        ).decode('utf-8', errors='replace')
     except subprocess.CalledProcessError as e:
-        result = str(e.output.decode('utf-8', errors='replace'))
+        result = e.output.decode('utf-8', errors='replace')
     except Exception as e:
         result = f'Error executing command: {str(e)}'
     return result
 
 
+def is_url_like(text: str) -> bool:
+    return bool(re.match(r'^\s*https?://', text, re.IGNORECASE))
+
+
+def chunk_text_for_telegram(text: str, max_len: int = TELEGRAM_CHUNK_SIZE):
+    """
+    Split text into chunks that fit within Telegram message size limits.
+
+    We try to split at newline boundaries. If a single line is longer than max_len,
+    we do a hard split.
+    """
+    chunks = []
+    buffer = []
+
+    current_len = 0
+    for line in text.splitlines(keepends=True):
+        line_len = len(line)
+        if current_len + line_len <= max_len:
+            buffer.append(line)
+            current_len += line_len
+            continue
+
+        # flush current buffer
+        if buffer:
+            chunks.append(''.join(buffer).rstrip())
+            buffer = []
+            current_len = 0
+
+        # if the line itself is too long, hard-split it
+        while line_len > max_len:
+            chunks.append(line[:max_len])
+            line = line[max_len:]
+            line_len = len(line)
+
+        if line:
+            buffer.append(line)
+            current_len = len(line)
+
+    if buffer:
+        chunks.append(''.join(buffer).rstrip())
+
+    # Final guard - if somehow an empty list, ensure at least one chunk
+    if not chunks:
+        return [text[:max_len]]
+    return chunks
+
+
 async def send_chunked_text(message, text, chunk_size=TELEGRAM_CHUNK_SIZE):
-    """Split long text into Telegram friendly chunks."""
+    """Send long text in multiple Telegram-friendly chunks."""
     if not text:
         await message.reply_text('[no text returned]')
         return
-    for i in range(0, len(text), chunk_size):
-        await message.reply_text(text[i:i + chunk_size])
-
-
-def is_url_like(text: str) -> bool:
-    return bool(re.match(r'^\s*https?://', text, re.IGNORECASE))
+    for chunk in chunk_text_for_telegram(text, chunk_size):
+        await message.reply_text(chunk)
 
 
 # Handle all messages
@@ -101,7 +167,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await message.reply_text('Forbidden access!')
         return
 
-    # New: URL fetch branch
+    # URL fetch branch
     # Accept any of:
     #   url <http://...>
     #   fetch <http://...>
@@ -122,8 +188,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         logger.info(f"Fetching URL: {url}")
+        # We call python3 explicitly. If your venv python is required, change to sys.executable.
         result = execute_command(['python3', FETCH_SCRIPT, url])
-        # The helper prints errors to stderr but execute_command merges them; just send back
         await send_chunked_text(message, result)
         return
 
@@ -199,7 +265,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             'kodi stop': ['sudo', 'manage_kodi', 'off'],
             'kodi start': ['sudo', 'manage_kodi', 'on'],
             'upgrade raspbxino': ['sudo', 'upgrade_raspbxino'],
-            'tunnel-ssh': ['/usr/local/bin/ssh-port-forward.sh']
+            'tunnel-ssh': ['/usr/local/bin/ssh-port-forward.sh'],
         }
 
         if command in command_dict:
@@ -210,7 +276,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             device_dict = {
                 'router': ['sudo', 'restart_device', 'router'],
                 'raspberrino': ['sudo', 'restart_device', 'raspberrino'],
-                'raspbxino': ['sudo', 'restart_device', 'raspbxino']
+                'raspbxino': ['sudo', 'restart_device', 'raspbxino'],
             }
             if cmd in device_dict:
                 result = execute_command(device_dict[cmd])
@@ -220,9 +286,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             cmds = '\n'.join(
                 list(command_dict.keys())
-                + ['restart <device>',
-                   'exec <custom shell command - use at your own risk>',
-                   'url <http[s]://...> - fetch a web page and return clean text']
+                + [
+                    'restart <device>',
+                    'exec <custom shell command - use at your own risk>',
+                    'url <http[s]://...> - fetch a web page and return clean text',
+                ]
             )
             await message.reply_text(f'Commands available:\n{cmds}')
 
