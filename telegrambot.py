@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 import os
 import subprocess
 import time
@@ -6,18 +7,36 @@ import asyncio
 import logging
 import string
 import random
+import re
 from email.mime.text import MIMEText
 from datetime import datetime
-from config import id_a, username, bot_token, recipient_email, email_address, email_password, smtp_server, smtp_port, log_level
+
+from config import (
+    id_a,
+    username,
+    bot_token,
+    recipient_email,
+    email_address,
+    email_password,
+    smtp_server,
+    smtp_port,
+    log_level,
+)
+
 from telegram import Update
 from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, CommandHandler, filters
 import asyncio
 import nest_asyncio
 
+
 # Configure logging using the config value
 numeric_level = getattr(logging, log_level.upper(), logging.INFO)
-logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=numeric_level)
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=numeric_level,
+)
 logger = logging.getLogger(__name__)
+
 
 # File paths
 password_file = '/tmp/exec_password.txt'
@@ -26,11 +45,22 @@ temp_command_file = '/tmp/temp_command.txt'
 temp_script_path = '/tmp/temp-telegram-script.sh'
 max_attempts = 3
 
+# Telegram message length safety margin
+# Telegram hard limit is 4096 chars. Stay below to allow for formatting overhead.
+TELEGRAM_CHUNK_SIZE = 3500
+
+# Path to helper script that fetches and cleans URLs.
+# We resolve it relative to this file so the bot works wherever the repo lives.
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+FETCH_SCRIPT = os.path.join(SCRIPT_DIR, 'utils', 'fetch_clean_url.py')
+
+
 # Startup message
 async def startup_message(app):
     chat_id = id_a[0]
-    msg = f"Hey, just woke up man! It's {datetime.now().strftime('%d %B %Y - %I:%M %p')}"
+    msg = f"Hey, just woke up man! It is {datetime.now().strftime('%d %B %Y - %I:%M %p')}"
     await app.bot.send_message(chat_id=chat_id, text=msg)
+
 
 # Email sender
 def send_email(subject, body, to):
@@ -44,20 +74,82 @@ def send_email(subject, body, to):
         server.login(email_address, email_password)
         server.sendmail(email_address, to, msg.as_string())
 
+
 # Generate a random password
 def generate_password(length=12):
     characters = string.ascii_letters + string.digits + string.punctuation
     return ''.join(random.choice(characters) for _ in range(length))
 
+
 # Execute a shell command
 def execute_command(command_list):
     try:
-        result = subprocess.check_output(command_list, stderr=subprocess.STDOUT).decode('utf-8')
+        result = subprocess.check_output(
+            command_list,
+            stderr=subprocess.STDOUT,
+        ).decode('utf-8', errors='replace')
     except subprocess.CalledProcessError as e:
-        result = str(e.output.decode('utf-8'))
+        result = e.output.decode('utf-8', errors='replace')
     except Exception as e:
         result = f'Error executing command: {str(e)}'
     return result
+
+
+def is_url_like(text: str) -> bool:
+    return bool(re.match(r'^\s*https?://', text, re.IGNORECASE))
+
+
+def chunk_text_for_telegram(text: str, max_len: int = TELEGRAM_CHUNK_SIZE):
+    """
+    Split text into chunks that fit within Telegram message size limits.
+
+    We try to split at newline boundaries. If a single line is longer than max_len,
+    we do a hard split.
+    """
+    chunks = []
+    buffer = []
+
+    current_len = 0
+    for line in text.splitlines(keepends=True):
+        line_len = len(line)
+        if current_len + line_len <= max_len:
+            buffer.append(line)
+            current_len += line_len
+            continue
+
+        # flush current buffer
+        if buffer:
+            chunks.append(''.join(buffer).rstrip())
+            buffer = []
+            current_len = 0
+
+        # if the line itself is too long, hard-split it
+        while line_len > max_len:
+            chunks.append(line[:max_len])
+            line = line[max_len:]
+            line_len = len(line)
+
+        if line:
+            buffer.append(line)
+            current_len = len(line)
+
+    if buffer:
+        chunks.append(''.join(buffer).rstrip())
+
+    # Final guard - if somehow an empty list, ensure at least one chunk
+    if not chunks:
+        return [text[:max_len]]
+    return chunks
+
+
+async def send_chunked_text(message, text, chunk_size=TELEGRAM_CHUNK_SIZE):
+    """Send long text in multiple Telegram-friendly chunks."""
+    if not text:
+        await message.reply_text('[no text returned]')
+        return
+    for chunk in chunk_text_for_telegram(text, chunk_size):
+        await message.reply_text(chunk)
+
 
 # Handle all messages
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -70,10 +162,38 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     logger.info(f"Got command: {command}")
 
+    # Authorisation gate
     if user_id not in id_a or is_bot or username_input not in username:
         await message.reply_text('Forbidden access!')
         return
 
+    # URL fetch branch
+    # Accept any of:
+    #   url <http://...>
+    #   fetch <http://...>
+    #   <http://...> (bare URL)
+    lower_cmd = command.lower()
+    url = None
+    if lower_cmd.startswith('url '):
+        url = command.split(' ', 1)[1].strip()
+    elif lower_cmd.startswith('fetch '):
+        url = command.split(' ', 1)[1].strip()
+    elif is_url_like(command):
+        url = command.strip()
+
+    if url:
+        # Run helper script
+        if not os.path.exists(FETCH_SCRIPT) or not os.access(FETCH_SCRIPT, os.X_OK):
+            await message.reply_text(f'Fetch script not found or not executable at {FETCH_SCRIPT}')
+            return
+
+        logger.info(f"Fetching URL: {url}")
+        # We call python3 explicitly. If your venv python is required, change to sys.executable.
+        result = execute_command(['python3', FETCH_SCRIPT, url])
+        await send_chunked_text(message, result)
+        return
+
+    # Existing exec flow
     if command.startswith('exec'):
         password = generate_password()
         with open(password_file, 'w') as f:
@@ -145,7 +265,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             'kodi stop': ['sudo', 'manage_kodi', 'off'],
             'kodi start': ['sudo', 'manage_kodi', 'on'],
             'upgrade raspbxino': ['sudo', 'upgrade_raspbxino'],
-            'tunnel-ssh': ['/usr/local/bin/ssh-port-forward.sh']
+            'tunnel-ssh': ['/usr/local/bin/ssh-port-forward.sh'],
         }
 
         if command in command_dict:
@@ -156,7 +276,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             device_dict = {
                 'router': ['sudo', 'restart_device', 'router'],
                 'raspberrino': ['sudo', 'restart_device', 'raspberrino'],
-                'raspbxino': ['sudo', 'restart_device', 'raspbxino']
+                'raspbxino': ['sudo', 'restart_device', 'raspbxino'],
             }
             if cmd in device_dict:
                 result = execute_command(device_dict[cmd])
@@ -164,8 +284,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             else:
                 await message.reply_text('Usage: restart (router|raspberrino|raspbxino)')
         else:
-            cmds = '\n'.join(list(command_dict.keys()) + ['restart <device>', 'exec <custom shell command - use at your own risk>'])
+            cmds = '\n'.join(
+                list(command_dict.keys())
+                + [
+                    'restart <device>',
+                    'exec <custom shell command - use at your own risk>',
+                    'url <http[s]://...> - fetch a web page and return clean text',
+                ]
+            )
             await message.reply_text(f'Commands available:\n{cmds}')
+
 
 # Main application
 async def main():
@@ -180,8 +308,8 @@ async def main():
     await startup_message(app)
     await app.run_polling()
 
+
 if __name__ == '__main__':
     nest_asyncio.apply()
     asyncio.run(main())
-
 
