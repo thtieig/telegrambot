@@ -1,0 +1,9 @@
+#!/bin/bash
+
+# kill process if running
+for PID in $(ps aux | grep -i "[p]ython.*telegrambot.py" | awk '{print $2}') ; do 
+   kill -9 $PID > /dev/null 2>&1
+done
+
+# restart process
+bash -c 'source /home/chris/scripts/telegrambot/telegram_bot/bin/activate && python /home/chris/scripts/telegrambot/telegrambot.py 2>&1 | /usr/bin/logger -t telegrambot' &
