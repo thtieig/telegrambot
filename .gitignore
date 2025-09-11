@@ -57,7 +57,11 @@ tmp*
 *.tmp
 old*
 OLD*
-telegram_bot
+telegram_bot/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
 utils/check_telegrambot_connection
 utils/check_telegrambot
 utils/telegrambot.monit
