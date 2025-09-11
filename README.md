@@ -247,7 +247,7 @@ To use the exec function, you must configure SMTP settings in `config.py`:
 
 The folder `utils` contains utility scripts that support the main application:
 
-* **fetch_clean_url.py**: Helper script for the URL fetching functionality. Extracts clean text from web pages.
+* **fetch_clean_url.py**: Helper script for the URL fetching functionality. Extracts clean text from web pages.  
 
 ---
 
