@@ -1,0 +1,39 @@
+#!/bin/bash
+# --------------------------------------------------------------------------------
+# Remote shutdown of a Windows machine using Samba's 'net rpc shutdown' command #
+# --------------------------------------------------------------------------------
+
+# Prerequisites:
+# --------------------------------------------------------------------------------
+# 1. Create a user on the Windows machine with permission to shut it down remotely
+#    (Control Panel -> Administrative Tools -> Computer Management -> Local Users and Groups -> Users)
+# 1.1. Remove the user from the "Users" group and add it to the "Guests" group to limit its permissions
+# 2. Enable "Force shutdown from a remote system" in the Local Security Policy
+#    (Control Panel -> Administrative Tools -> Local Security Policy -> Local Policies -> User Rights Assignment)
+# 3. Ensure the Windows machine allows remote shutdowns through its firewall
+#    (Control Panel -> System and Security -> Windows Defender Firewall -> Allow an app or feature through Windows Defender Firewall)
+#    Make sure "File and Printer Sharing" and "Remote Service Management" are allowed for the appropriate network profile (Private/Public)
+#      # You can also enable the necessary firewall rules via PowerShell:
+#      # Enable File and Printer Sharing (SMB-In)
+#      Enable-NetFirewallRule -DisplayGroup "File and Printer Sharing"
+#      # Enable Remote Service Management (RPC + RPC-EPMAP)
+#      Enable-NetFirewallRule -DisplayGroup "Remote Service Management"
+# 4. Make sure the Windows machine is on the same network as your Linux machine
+# 5. Install Samba on your Linux machine if not already installed
+#    (e.g., on Debian/Ubuntu: sudo apt install samba -y)
+# 6. Test the connection using:
+#    net rpc -S <Windows_IP_or_Hostname> -U <username>%<password> info  
+#    (Replace <Windows_IP_or_Hostname>, <username>, and <password> with actual values) 
+#    If the command returns information about the Windows machine, the connection is successful
+
+# Save this file as /usr/local/bin/shutdown-remote-windows
+# Make it executable: sudo chmod +x /usr/local/bin/shutdown-remote-windows
+
+
+
+# Windows machine info
+WIN_HOST="WINDOWS-PC"   # or IP address
+WIN_USER="shutdownuser"
+WIN_PASS="MyStrongPassword!"
+
+net rpc shutdown -I "$WIN_HOST" -U "$WIN_USER%$WIN_PASS"
