@@ -28,10 +28,12 @@ import re
 import html as html_unescape
 from typing import Optional
 
-# Force UTF-8 output
+# Force UTF-8 output regardless of the calling environment locale.
+# This prevents UnicodeEncodeError on systems with latin-1 stdout.
 try:
-    sys.stdout.reconfigure(encoding='utf-8')
+    sys.stdout.reconfigure(encoding='utf-8')  # Python 3.7+
 except Exception:
+    # Fallback: write via helper when printing
     pass
 
 # Required dependency
@@ -58,14 +60,17 @@ except Exception:
 # ------------------------------------------------------------------
 
 def debug(msg: str) -> None:
-    """Silent debug."""
+    """Write debug lines to stderr. Silent by default unless you uncomment."""
+    # print(f"[DEBUG] {msg}", file=sys.stderr)  # uncomment for troubleshooting
     pass
 
 
 def normalise_newlines(text: str) -> str:
+    """Strip CRs, trim lines, collapse blank runs."""
     text = re.sub(r'\r\n?', '\n', text)
     lines = [ln.strip() for ln in text.splitlines()]
     text = "\n".join(lines)
+    # Collapse 3+ newlines to 2
     text = re.sub(r'\n{3,}', '\n\n', text)
     return text.strip()
 
@@ -74,10 +79,12 @@ def is_probably_binary(content_type: Optional[str]) -> bool:
     if not content_type:
         return False
     ctype = content_type.split(';', 1)[0].strip().lower()
+    # quick filter for non-text
     if ctype.startswith("text/"):
         return False
     if ctype in ("application/xhtml+xml", "application/xml", "application/json"):
         return False
+    # common binary types
     if any(ctype.startswith(x) for x in (
         "image/", "audio/", "video/", "application/pdf", "application/zip", "application/gzip",
         "application/octet-stream"
@@ -87,24 +94,33 @@ def is_probably_binary(content_type: Optional[str]) -> bool:
 
 
 def clean_with_bs4(html_text: str) -> str:
+    """Strip script/style/nav cruft and return readable text."""
     if not BeautifulSoup:
+        # bs4 missing: fall back to tag-strip regex
         return regex_strip_tags(html_text)
+
     parser = 'html.parser'
     try:
         import lxml  # noqa: F401
         parser = 'lxml'
     except Exception:
         pass
+
     soup = BeautifulSoup(html_text, parser)
+
+    # remove common non-content elements
     for tag in soup(['script', 'style', 'noscript', 'iframe', 'header', 'footer', 'nav', 'form', 'aside']):
         tag.decompose()
+
     text = soup.get_text(separator='\n')
     text = html_unescape.unescape(text)
     return normalise_newlines(text)
 
 
 def regex_strip_tags(html_text: str) -> str:
+    """Very rough fallback if bs4 not installed."""
     no_script = re.sub(r'(?is)<(script|style|noscript|iframe).*?>.*?</\1>', ' ', html_text)
+    # remove the rest of the tags
     txt = re.sub(r'(?s)<.*?>', ' ', no_script)
     txt = html_unescape.unescape(txt)
     return normalise_newlines(txt)
@@ -112,33 +128,29 @@ def regex_strip_tags(html_text: str) -> str:
 
 def extract_main_content(html_text: str, prefer_article: bool = True) -> str:
     """
-    Try to extract article using Readability if possible.
-    Site-specific extraction for Head for Points.
+    Try to extract just the article body if readability is available and requested.
+    Fall back to whole page clean.
     """
     if prefer_article and ReadabilityDocument:
         try:
             doc = ReadabilityDocument(html_text)
             article_html = doc.summary() or ""
             if article_html.strip():
+                debug("Using readability extracted article")
                 return clean_with_bs4(article_html)
-        except Exception:
-            pass
+        except Exception as e:
+            debug(f"Readability failed: {e}")
 
-    # Head for Points site-specific extraction
-    if 'headforpoints.com' in html_text.lower() and BeautifulSoup:
-        try:
-            soup = BeautifulSoup(html_text, 'html.parser')
-            main_div = soup.find('div', class_='entry-content')
-            if main_div:
-                return clean_with_bs4(str(main_div))
-        except Exception:
-            pass
-
-    # fallback
+    # fallback to full-page clean
+    debug("Falling back to full page clean")
     return clean_with_bs4(html_text)
 
 
 def fetch(url: str, timeout: int = 20) -> requests.Response:
+    """
+    Fetch URL returning the Response. Caller handles decoding and content-type.
+    allow_redirects defaults to True.
+    """
     headers = {
         "User-Agent": "Mozilla/5.0 (compatible; TelegramAssistantFetcher/1.0; +https://example.invalid)"
     }
@@ -147,7 +159,15 @@ def fetch(url: str, timeout: int = 20) -> requests.Response:
 
 
 def decode_body(resp: requests.Response, max_bytes: int = 5_000_000) -> str:
+    """
+    Best effort decode of response body to text.
+    Caps at max_bytes to avoid memory surprises.
+    """
     content = resp.content[:max_bytes]
+    if len(resp.content) > max_bytes:
+        debug(f"Body truncated at {max_bytes} bytes")
+
+    # Use supplied encoding if present, else detected apparent_encoding, else utf-8
     enc = resp.encoding or resp.apparent_encoding or 'utf-8'
     try:
         return content.decode(enc, errors='replace')
@@ -159,12 +179,14 @@ def decode_body(resp: requests.Response, max_bytes: int = 5_000_000) -> str:
 
 
 def write_stdout(text: str) -> None:
+    """Write UTF-8 text to stdout safely."""
     data = text.encode('utf-8', errors='replace')
     try:
         sys.stdout.buffer.write(data)
         if not data.endswith(b'\n'):
             sys.stdout.buffer.write(b'\n')
     except Exception:
+        # last ditch
         print(text)
 
 
