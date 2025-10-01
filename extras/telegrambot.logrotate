@@ -1,0 +1,10 @@
+/var/log/telegrambot_full.log {
+    daily
+    rotate 7
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+}
+

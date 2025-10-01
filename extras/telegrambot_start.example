@@ -4,11 +4,23 @@
 # make sure is chmod +x
 # Update "full_path_where_script_is_stored" with the actual path before copying/executing
 
-# kill process if running
-for PID in $(ps aux | grep -i "[p]ython.*telegrambot.py" | awk '{print $2}') ; do 
-   kill -9 $PID > /dev/null 2>&1
-done
+# --- config ---
+BOT_HOME="/full_path_where_script_is_stored/telegrambot"
+VENV_PYTHON="$BOT_HOME/telegram_bot/bin/python"
+BOT_SCRIPT="$BOT_HOME/telegrambot.py"
+LOGFILE="/var/log/telegrambot_full.log"
 
-# restart process
-bash -c 'source /full_path_where_script_is_stored/TelegramBot/telegram_bot/bin/activate && python /full_path_where_script_is_stored/TelegramBot/telegrambot.py 2>&1 | /usr/bin/logger -t telegrambot' &
+# kill existing
+pkill -f -9 "[p]ython.*telegrambot.py" 2>/dev/null
+
+# go to bot home (so relative paths work)
+cd "$BOT_HOME" || {
+  echo "Failed to cd to $BOT_HOME" >> "$LOGFILE"
+  exit 1
+}
+
+# start with unbuffered mode, capture all output
+nohup "$VENV_PYTHON" -u "$BOT_SCRIPT" >> "$LOGFILE" 2>&1 &
+
+echo "Started bot: $(date)" >> "$LOGFILE"
 

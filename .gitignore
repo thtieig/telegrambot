@@ -62,8 +62,9 @@ __pycache__/
 *.pyc
 *.pyo
 *.pyd
-utils/check_telegrambot_connection
-utils/check_telegrambot
-utils/telegrambot.monit
-utils/rc.local
-utils/telegrambot_start
+extras/check_telegrambot_connection
+extras/check_telegrambot
+extras/telegrambot.monit
+extras/rc.local
+extras/telegrambot_start
+myscripts/**
