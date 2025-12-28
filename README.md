@@ -9,9 +9,13 @@ This is a modular Python application that allows you to run commands on your rem
 ### What is this repository for?
 
 * Telegram Assistant (personal Telegram bot for remote control)
-* Version 5.0
+* Version 5.1
 
 ---
+#### What's new in version 5.1?
+
+* **PID**: The script uses the .pid file now
+
 
 #### What's new in version 5.0?
 
