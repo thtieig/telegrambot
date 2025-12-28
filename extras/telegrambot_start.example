@@ -9,18 +9,23 @@ BOT_HOME="/full_path_where_script_is_stored/telegrambot"
 VENV_PYTHON="$BOT_HOME/telegram_bot/bin/python"
 BOT_SCRIPT="$BOT_HOME/telegrambot.py"
 LOGFILE="/var/log/telegrambot_full.log"
+# NEW: Define where the PID goes (inside your folder)
+PIDFILE="$BOT_HOME/telegrambot.pid"
 
 # kill existing
 pkill -f -9 "[p]ython.*telegrambot.py" 2>/dev/null
 
-# go to bot home (so relative paths work)
+# go to bot home
 cd "$BOT_HOME" || {
   echo "Failed to cd to $BOT_HOME" >> "$LOGFILE"
   exit 1
 }
 
-# start with unbuffered mode, capture all output
+# start with unbuffered mode
 nohup "$VENV_PYTHON" -u "$BOT_SCRIPT" >> "$LOGFILE" 2>&1 &
 
-echo "Started bot: $(date)" >> "$LOGFILE"
+# NEW: Save the PID of the background process ($!) to the file
+echo $! > "$PIDFILE"
+
+echo "Started bot with PID $!: $(date)" >> "$LOGFILE"
 

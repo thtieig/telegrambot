@@ -68,3 +68,4 @@ extras/telegrambot.monit
 extras/rc.local
 extras/telegrambot_start
 myscripts/**
+*.pid
