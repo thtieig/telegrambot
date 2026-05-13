@@ -16,7 +16,10 @@ class ServiceCommandHandler(BaseCommandHandler):
     async def execute(self, message, command: str):
         if command in self.commands:
             result = ShellExecutor.execute_command(self.commands[command])
-            await message.reply_text(result)
+            if result.strip():
+                await message.reply_text(result)
+            else:
+                await message.reply_text(f"✅ {command} completed")
     
     async def get_help(self) -> str:
         return "Services: " + ", ".join(self.commands.keys())
