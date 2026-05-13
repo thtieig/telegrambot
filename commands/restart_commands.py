@@ -8,7 +8,6 @@ class RestartCommandHandler(BaseCommandHandler):
         self.devices = {
             'router': ['sudo', 'restart_device', 'router'],
             'raspberrino': ['sudo', 'restart_device', 'raspberrino'],
-            'raspbxino': ['sudo', 'restart_device', 'raspbxino'],
         }
     
     async def can_handle(self, command: str) -> bool:

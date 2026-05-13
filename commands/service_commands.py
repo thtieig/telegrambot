@@ -7,10 +7,7 @@ class ServiceCommandHandler(BaseCommandHandler):
     def __init__(self):
         self.commands = {
             'vpn-restart': ['sudo', 'systemctl', 'restart', 'openvpn.service'],
-            'kodi stop': ['sudo', 'manage_kodi', 'off'],
-            'kodi start': ['sudo', 'manage_kodi', 'on'],
-            'upgrade raspbxino': ['sudo', 'upgrade_raspbxino'],
-            'tunnel-ssh': ['/usr/local/bin/ssh-port-forward.sh'],
+            'tunnel-ssh': ['sudo', 'systemctl', 'restart', 'ssh-tunnel'],
         }
     
     async def can_handle(self, command: str) -> bool:
