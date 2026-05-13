@@ -1,9 +1,14 @@
-# commands/exec_commands.py
-"""Secure command execution with email verification"""
+"""Command execution with email verification.
+
+State files (password, attempts, pending command, temp script) live under
+$TELEGRAMBOT_STATE_DIR (default /var/lib/telegrambot) — not /tmp — so they
+are private to the bot user and immune to /tmp swap attacks.
+"""
 import os
 import random
 import string
 import smtplib
+from pathlib import Path
 from datetime import datetime
 from email.mime.text import MIMEText
 
@@ -11,45 +16,40 @@ from core.command_loader import BaseCommandHandler
 from core.shell_utils import ShellExecutor
 from config import recipient_email, email_address, email_password, smtp_server, smtp_port
 
+STATE_DIR = Path(os.environ.get('TELEGRAMBOT_STATE_DIR', '/var/lib/telegrambot'))
+
+
 class ExecCommandHandler(BaseCommandHandler):
     def __init__(self):
-        self.password_file = '/tmp/exec_password.txt'
-        self.attempt_file = '/tmp/exec_attempts.txt'
-        self.temp_command_file = '/tmp/temp_command.txt'
-        self.temp_script_path = '/tmp/temp-telegram-script.sh'
+        STATE_DIR.mkdir(parents=True, exist_ok=True)
+        self.password_file = STATE_DIR / 'exec_password.txt'
+        self.attempt_file = STATE_DIR / 'exec_attempts.txt'
+        self.temp_command_file = STATE_DIR / 'exec_command.txt'
+        self.temp_script_path = STATE_DIR / 'exec_script.sh'
         self.max_attempts = 3
-    
+
     async def can_handle(self, command: str) -> bool:
         return command.startswith('exec') or command.startswith('PASSWORD')
-    
+
     async def execute(self, message, command: str):
         if command.startswith('exec'):
             await self._handle_exec_request(message, command)
         elif command.startswith('PASSWORD'):
             await self._handle_password_verification(message, command)
-    
+
     async def _handle_exec_request(self, message, command: str):
-        """Handle initial exec command request"""
         password = self._generate_password()
-        
-        # Store password and reset attempts
-        with open(self.password_file, 'w') as f:
-            f.write(password)
-        with open(self.attempt_file, 'w') as f:
-            f.write('0')
-        
-        # Store command to execute
+        self._write_private(self.password_file, password)
+        self._write_private(self.attempt_file, '0')
+
         cmd_to_store = ' '.join(command.split(' ')[1:])
-        with open(self.temp_command_file, 'w') as f:
-            f.write(cmd_to_store)
-        
-        # Send password via email
+        self._write_private(self.temp_command_file, cmd_to_store)
+
         self._send_email('Your exec Command Password', f'PASSWORD: {password}', recipient_email)
         await message.reply_text('A temporary password has been sent to your email. Please reply with PASSWORD: yourpassword to execute the command.')
-    
+
     async def _handle_password_verification(self, message, command: str):
-        """Handle password verification and command execution"""
-        if not os.path.exists(self.password_file):
+        if not self.password_file.exists():
             await message.reply_text('Password has expired or is invalid. Please generate a new exec command.')
             return
 
@@ -59,76 +59,63 @@ class ExecCommandHandler(BaseCommandHandler):
             return
 
         input_password = parts[1].strip()
-
-        # Verify password
-        with open(self.password_file, 'r') as f:
-            stored_password = f.read().strip()
+        stored_password = self.password_file.read_text().strip()
 
         if input_password != stored_password:
             await self._handle_failed_attempt(message)
             return
 
-        # Execute command
         await self._execute_stored_command(message)
-    
+
     async def _handle_failed_attempt(self, message):
-        """Handle failed password attempt"""
-        with open(self.attempt_file, 'r') as f:
-            attempts = int(f.read().strip())
-        attempts += 1
-        with open(self.attempt_file, 'w') as f:
-            f.write(str(attempts))
+        attempts = int(self.attempt_file.read_text().strip()) + 1
+        self._write_private(self.attempt_file, str(attempts))
 
         if attempts >= self.max_attempts:
             await message.reply_text('Too many failed attempts. The password has expired.')
             self._cleanup_files()
         else:
             await message.reply_text(f'Unauthorised access attempt! {self.max_attempts - attempts} attempts left.')
-    
+
     async def _execute_stored_command(self, message):
-        """Execute the stored command"""
-        with open(self.temp_command_file, 'r') as f:
-            command_to_execute = f.read().strip()
+        command_to_execute = self.temp_command_file.read_text().strip()
 
-        # Create temporary script
-        with open(self.temp_script_path, 'w') as f:
-            f.write(f'#!/bin/bash\n\n')
-            f.write(f'# Script generated by Telegram bot at {datetime.now()}\n')
-            f.write(f'# Command to execute: {command_to_execute}\n')
-            f.write(f'{command_to_execute}\n')
+        script = (
+            f'#!/bin/bash\n\n'
+            f'# Script generated by Telegram bot at {datetime.now()}\n'
+            f'# Command to execute: {command_to_execute}\n'
+            f'{command_to_execute}\n'
+        )
+        self.temp_script_path.write_text(script)
+        os.chmod(self.temp_script_path, 0o700)
 
-        os.chmod(self.temp_script_path, 0o755)
-
-        # Execute
-        result = ShellExecutor.execute_command(['sudo', self.temp_script_path])
+        result = ShellExecutor.execute_command(['sudo', str(self.temp_script_path)])
         await message.reply_text(f'Command execution result:\n\n{result}')
 
-        # Clean up
         self._cleanup_files()
-    
+
+    def _write_private(self, path: Path, content: str):
+        path.write_text(content)
+        os.chmod(path, 0o600)
+
     def _generate_password(self, length: int = 12) -> str:
-        """Generate a random password"""
         characters = string.ascii_letters + string.digits + string.punctuation
         return ''.join(random.choice(characters) for _ in range(length))
-    
+
     def _send_email(self, subject: str, body: str, to: str):
-        """Send email notification"""
         msg = MIMEText(body)
         msg['Subject'] = subject
         msg['From'] = email_address
         msg['To'] = to
-
         with smtplib.SMTP(smtp_server, smtp_port) as server:
             server.starttls()
             server.login(email_address, email_password)
             server.sendmail(email_address, to, msg.as_string())
-    
+
     def _cleanup_files(self):
-        """Clean up temporary files"""
-        files = [self.password_file, self.attempt_file, self.temp_command_file, self.temp_script_path]
-        for file_path in files:
-            if os.path.exists(file_path):
-                os.remove(file_path)
-    
+        for f in (self.password_file, self.attempt_file, self.temp_command_file, self.temp_script_path):
+            if f.exists():
+                f.unlink()
+
     async def get_help(self) -> str:
         return "Exec: exec <custom shell command - use at your own risk>"

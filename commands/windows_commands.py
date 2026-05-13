@@ -6,10 +6,10 @@ from core.shell_utils import ShellExecutor
 class WindowsCommandHandler(BaseCommandHandler):
     def __init__(self):
         self.commands = {
-            'shutdown-nuky': ['/usr/local/bin/shutdown-nuky'],
+            'shutdown-nuky': ['sudo', '/usr/local/bin/shutdown-nuky'],
             # You can easily add more Windows commands here later
-            # 'restart-nuky': ['/usr/local/bin/restart-nuky'],
-            # 'wake-nuky': ['/usr/local/bin/wake-nuky'],
+            # 'restart-nuky': ['sudo', '/usr/local/bin/restart-nuky'],
+            # 'wake-nuky': ['sudo', '/usr/local/bin/wake-nuky'],
         }
     
     async def can_handle(self, command: str) -> bool:
