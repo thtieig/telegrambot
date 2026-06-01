@@ -1,0 +1,4 @@
+#!/bin/bash
+# description: Fetch a URL and return cleaned text — usage: url <https://...>
+here="$(cd "$(dirname "$0")" && pwd)"
+exec python3 "$here/../utils/fetch_clean_url.py" "$@"

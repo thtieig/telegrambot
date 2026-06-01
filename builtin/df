@@ -1,0 +1,3 @@
+#!/bin/bash
+# description: Show disk usage (human readable)
+exec df -h

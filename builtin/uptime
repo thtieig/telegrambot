@@ -1,0 +1,3 @@
+#!/bin/bash
+# description: Show system uptime and load
+exec uptime

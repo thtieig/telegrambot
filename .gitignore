@@ -69,3 +69,6 @@ extras/rc.local
 extras/telegrambot_start
 myscripts/**
 *.pid
+# Host-specific scripts are deployed by Ansible, never committed
+scripts/*
+!scripts/.gitkeep

@@ -1,0 +1,3 @@
+#!/bin/bash
+# description: Show memory usage
+exec free -h

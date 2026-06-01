@@ -1,0 +1,3 @@
+#!/bin/bash
+# description: Show recent logins
+exec last
