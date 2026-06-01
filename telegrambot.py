@@ -60,6 +60,8 @@ class TelegramBot:
             return
 
         cmd, args = resolved
+        if cmd.name == "url":
+            await message.reply_text("Fetching URL, please wait...")
         try:
             result = run_command([cmd.path] + args)
             await send_output(message, result)
