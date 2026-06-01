@@ -165,6 +165,28 @@ The `README.md` is rewritten to reflect the new mental model:
 
 ---
 
+## Ansible Role Changes (`roles/telegram-bot`)
+
+The existing role (`roles/telegram-bot/tasks/main.yml`) needs these changes:
+
+### New tasks
+- Create `{{ telegram_bot_install_dir }}/scripts/` directory (owned by `telegrambot`, mode `0755`)
+- Deploy `vpn-restart` bash script to `scripts/vpn-restart` (new template: one-liner `sudo systemctl restart openvpn.service`)
+- Deploy `tunnel-ssh` bash script to `scripts/tunnel-ssh` (new template: one-liner `sudo systemctl restart ssh-tunnel`)
+- Deploy `restart` bash script to `scripts/restart` (new template: thin wrapper calling `/usr/local/bin/restart_device "$@"`)
+- Create symlink: `scripts/shutdown-nuky` → `/usr/local/bin/shutdown-nuky`
+
+### Changed tasks
+- "Deploy vps_torrent_commands.py to telegrambot commands dir" → change destination to `scripts/vps_torrent.py`, rename template to `vps_torrent.py.j2`
+- "Clone telegrambot repo" — after repo restructure, the `commands/` dir will be gone from git. Add a one-time cleanup task to remove `{{ telegram_bot_install_dir }}/commands/` if it exists (using `file: state=absent`)
+
+### No change needed
+- `restart_device`, `shutdown-nuky`, `ssh-port-forward.sh` deploy tasks — these already target `/usr/local/bin/`, unchanged
+- `vps_torrent.py` (lifecycle script in `utils/`), `vps_torrent_config.json`, `config.py`, systemd service — all unchanged
+- sudoers, user creation, venv, pip install — all unchanged
+
+---
+
 ## Known Issues Fixed (from audit)
 
 These are addressed during the rewrite:
