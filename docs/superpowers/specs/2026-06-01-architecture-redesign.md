@@ -1,100 +1,93 @@
 # Telegrambot Architecture Redesign
 
-**Date:** 2026-06-01  
+**Date:** 2026-06-01
 **Status:** Approved
 
 ---
 
 ## Goal
 
-Simplify the bot so that adding, removing, or understanding a command requires no Python knowledge and no framework boilerplate. One folder, drop a script in, it works.
+Make the bot a small, reusable, generic "run my scripts via Telegram" engine. Delete the plugin system. Move host-specific scripts and secrets out of the bot repo into Ansible. Make adding/removing a command a one-line change.
 
 ---
 
-## Repo Split
+## Core realisation
 
-| Repo | What lives there | Visibility |
+The complexity is the plugin system. Every command is a `BaseCommandHandler` subclass, dynamically imported via `importlib`, implementing `can_handle`/`execute`/`get_help`. That machinery exists for ~2 commands that genuinely need state; the other 90% are "run a shell command, send the output".
+
+**Decision: delete the plugin system entirely. A command is a file.**
+
+Two commands genuinely need more than request/response and are handled as explicit exceptions:
+- `exec` — needs state across two messages (send password → wait for reply). Kept as a single hardcoded framework feature.
+- `torrent` watcher — pushes messages proactively on a timer. Moved out of the bot into its own systemd service.
+
+After this, the bot has **no plugin system and no async background state.**
+
+---
+
+## Repo split
+
+| Repo | Contents | Visibility |
 |---|---|---|
-| `telegrambot` | Bot framework, core logic, built-in commands | Public |
-| Private scripts | Personal scripts, `vps_torrent`, config | Private (Ansible-managed) |
-
-The public repo has no personal data. Anyone can clone it and run their own instance.
+| `telegrambot` | Generic bot engine, universal built-in scripts, `exec` | Public |
+| `fish_and_chips_infra` (Ansible) | Host-specific scripts, secrets, torrent feature | Private |
 
 ---
 
-## Folder Structure
+## Bot repo: target structure
 
 ```
 telegrambot/
-├── telegrambot.py           # entry point, unchanged
-├── config.py.template       # configuration template
+├── telegrambot.py           # main loop: auth → route → run → sanitise → chunk → reply
+├── config.py.template
 ├── requirements.txt
 ├── core/
-│   ├── auth.py              # authentication (unchanged)
-│   ├── command_loader.py    # updated: scans builtins/ and scripts/
-│   ├── message_utils.py     # chunking, url detection (unchanged)
-│   └── shell_utils.py       # subprocess wrapper (unchanged)
-├── builtins/                # ships with the framework, committed to public repo
-│   ├── exec.py              # Python plugin — secure arbitrary command execution
-│   ├── url.py               # Python plugin — fetch and clean a webpage
-│   ├── uptime               # bash script
-│   ├── df                   # bash script
-│   ├── last                 # bash script
-│   ├── mem                  # bash script (free -h)
-│   ├── myip                 # bash script (public + local IP)
-│   └── ping                 # bash script (passes args through)
-├── scripts/                 # gitignored, empty in public repo, Ansible-managed
+│   ├── __init__.py
+│   ├── auth.py              # authorised user check (unchanged)
+│   ├── runner.py            # run a file, capture stdout+stderr, 30s timeout (was shell_utils.py)
+│   ├── output.py            # strip control chars + chunk for Telegram (was message_utils.py)
+│   └── exec.py              # the ONE built-in stateful command
+├── builtin/                 # universal scripts, tracked in git, zero-config
+│   ├── uptime
+│   ├── df
+│   ├── last
+│   ├── mem
+│   └── url                  # wraps utils/fetch_clean_url.py
+├── scripts/                 # host-specific drop-in, gitignored
 │   └── .gitkeep
 ├── utils/
-│   └── fetch_clean_url.py   # helper called by builtins/url.py (unchanged)
+│   └── fetch_clean_url.py   # helper called by builtin/url (unchanged)
 ├── docs/
-└── extras/                  # reference/sample deployment files (unchanged)
+└── extras/                  # reference/sample deployment files (kept, see note)
 ```
 
-The `commands/` folder is removed entirely.
+**Deleted from the repo:** `core/command_loader.py`, `core/message_utils.py`, `core/shell_utils.py`, the entire `commands/` directory (all six `*_commands.py` files).
 
 ---
 
-## Command Discovery
+## How the bot works
 
-The loader scans `builtins/` then `scripts/` on startup.
+On startup, scan `builtin/` then `scripts/`. Build a name→path map of every regular file (filename = command name). `scripts/` overrides `builtin/` on name collision.
 
-**Resolution rules:**
+On each message (after auth):
 
-1. A file in `scripts/` with the same name as a file in `builtins/` wins — `scripts/` always overrides built-ins.
-2. A `.py` file containing a `BaseCommandHandler` subclass → loaded as a Python plugin.
-3. Any file with the executable bit set (that is not a `.py` plugin) → run as a subprocess.
-4. Anything else is ignored.
+1. `exec`/`PASSWORD` prefixes → routed to the built-in `exec` feature (special-cased before script lookup).
+2. Message looks like a URL (`^\s*https?://`) → rewrite to `url <message>` for convenience.
+3. First token = command name → look up in the map.
+   - Found → run `<path> <remaining args>` via `runner`, sanitise + chunk output, reply.
+   - Not found → reply with help (list of command names + their `# description:` line).
 
-**Load order matters for help text and command routing** — `scripts/` entries appear after `builtins/` in the help list, but take routing priority.
+**Argument passing:** Unix-style, transparent. `restart router` runs `scripts/restart router`. No parsing.
 
----
+**Output handling** is a framework concern applied to *all* command output: capture stdout+stderr, 30s timeout, strip control characters Telegram rejects, chunk to ≤3500 chars.
 
-## Running Scripts
-
-When a message arrives:
-
-1. First token = command name. Looked up against loaded commands (by filename, without extension for `.py` plugins).
-2. Remaining tokens = arguments, passed as-is to the script (`$1`, `$2`, ... or `sys.argv[1:]`).
-3. Stdout + stderr captured, sent to Telegram (chunked if long).
-4. 30-second timeout. Exit code non-zero: output is still sent (may contain useful error text).
-
-Examples:
-
-| Telegram message | What runs |
-|---|---|
-| `uptime` | `builtins/uptime` |
-| `ping 8.8.8.8` | `builtins/ping 8.8.8.8` |
-| `restart router` | `scripts/restart router` |
-| `torrent start` | `scripts/vps_torrent.py` plugin, `can_handle("torrent start")` |
-| `exec rm -rf /tmp/test` | `builtins/exec.py` plugin |
-| `https://example.com` | `builtins/url.py` plugin (bare URL detection) |
+**Help text** for each script comes from a `# description: <text>` comment on line 2. Missing → list filename only.
 
 ---
 
-## Script Conventions
+## Script conventions
 
-**Executable scripts** (bash, python, anything):
+Any executable file, any language:
 
 ```bash
 #!/bin/bash
@@ -103,95 +96,113 @@ df -h
 ```
 
 - Line 1: shebang
-- Line 2: `# description: <text>` — used in help output. Optional but recommended.
-- Must have executable bit: `chmod +x`
-
-**Python plugins** (stateful / multi-step commands):
-
-- Inherit from `BaseCommandHandler` (unchanged interface)
-- `can_handle()`, `execute()`, `get_help()` as today
-- Do NOT need the executable bit
+- Line 2: `# description: <text>` (optional, recommended)
+- Executable bit set
 
 ---
 
-## Scripts Available on the Host AND in the Bot
+## The `exec` built-in
 
-Scripts that need to be usable by a regular user on the shell AND via Telegram follow this pattern:
+Ported from `commands/exec_commands.py` into `core/exec.py`, keeping the email-2FA flow. State files stay under `$TELEGRAMBOT_STATE_DIR` (default `/var/lib/telegrambot`).
 
-- Real script lives in `/usr/local/bin/<name>` (system-wide, in PATH)
-- Ansible creates a symlink: `/opt/telegrambot/scripts/<name>` → `/usr/local/bin/<name>`
-- Bot discovers the symlink as a normal executable
+Two security fixes applied during the move:
+- Use `secrets.choice` instead of `random.choice` for password generation.
+- Pass the stored command to the shell as an argument, not embedded in generated bash script text (avoids metacharacter injection into the script body).
 
+---
+
+## The torrent feature: out of the bot
+
+Today `commands/vps_torrent_commands.py` runs an in-bot async watcher that must be resumed on restart. This is removed from the bot entirely.
+
+**`torrent` becomes a plain script** (`scripts/torrent`, deployed by Ansible) that calls the existing `vps_torrent.py` CLI:
 ```
-/usr/local/bin/shutdown-nuky       ← real file, usable by chris
-/opt/telegrambot/scripts/shutdown-nuky  → symlink
+torrent start|stop|status|sync  →  sudo .venv/bin/python utils/vps_torrent.py <subcmd>
 ```
 
-Ansible task example:
+**The watcher becomes `torrent-watcher.service`** — a standalone systemd service running a new `vps_torrent.py watch` subcommand. It:
+- Polls the state file each loop; idle when no VPS exists, active when one does.
+- Polls Transmission, sends Telegram messages directly via the bot token (already in config).
+- On torrent completion, triggers `sync`.
+- Is `enabled` and always running; systemd handles restart-on-failure.
+
+The bot needs no knowledge of torrents beyond the `torrent` script being present in `scripts/`.
+
+Two fixes applied during the move:
+- Watcher notifies on errors instead of silently swallowing all exceptions.
+- Config load handles a missing/invalid config file with a clear error.
+
+---
+
+## Bare-URL convenience
+
+Keep the "paste a URL" convenience as a small framework normalisation: if a message matches `^\s*https?://`, route it to the `url` command. If `url` is not present (e.g. someone removed it), fall through to help.
+
+---
+
+## Ansible: three roles instead of one
+
+### Role 1 — `telegram-bot` (generic framework, reusable)
+
+Responsibilities only:
+- Create `telegrambot` system user, install dir, venv, pip install.
+- Clone the public repo, deploy `config.py` (from vault), deploy systemd unit.
+- Create the empty `scripts/` drop-in dir.
+- Deploy the host's command scripts by **looping over a data-driven list** — no script names hardcoded in the role.
+
+Data-driven list lives in `host_vars/raspberrino.yml`:
+
 ```yaml
-- name: Symlink shutdown-nuky into telegrambot scripts
-  file:
-    src: /usr/local/bin/shutdown-nuky
-    dest: /opt/telegrambot/scripts/shutdown-nuky
-    state: link
+telegram_bot_scripts:
+  - { name: vpn-restart,   inline: "sudo systemctl restart openvpn.service" }
+  - { name: tunnel-ssh,    inline: "sudo systemctl restart ssh-tunnel" }
+  - { name: restart,       link:   /usr/local/bin/restart_device }
+  - { name: shutdown-nuky, link:   /usr/local/bin/shutdown-nuky }
 ```
+
+Three entry types the role handles:
+- `inline` — role generates a one-line wrapper script (with shebang + `# description`).
+- `link` — symlink in `scripts/` pointing at an existing `/usr/local/bin` binary (usable from shell too).
+- `template` — deploy a real script file from the role's templates.
+
+This is the single source of truth for "what can the bot do on this host."
+
+### Role 2 — `energenie` (already exists, unchanged)
+
+Already deploys `/usr/local/bin/energenie` and `/usr/local/bin/restart_device`. The `link:` entry in the list exposes `restart_device` to the bot. No change to this role beyond confirming it runs before `telegram-bot` (so the link target exists).
+
+### Role 3 — `torrent` (new — owns the complex feature)
+
+Owns everything torrent, all in one place:
+- `vps_torrent.py` CLI → `{{ install_dir }}/utils/vps_torrent.py` (with new `watch` subcommand).
+- `vps_torrent_config.json` (vault secrets) → `{{ install_dir }}/utils/`.
+- `torrent` script → dropped into the bot's `scripts/` dir.
+- `torrent-watcher.service` → systemd unit, enabled + started.
+- `torrent_sync.sh` → delegated to bananacapsule (as today).
+
+Runs after `telegram-bot` (needs `scripts/` to exist).
 
 ---
 
-## Migration: What Moves Where
+## requirements.txt
 
-| Current location | New location |
-|---|---|
-| `commands/system_commands.py` | Replaced by `builtins/uptime`, `builtins/df`, `builtins/last` (bash scripts) |
-| `commands/service_commands.py` | Replaced by `scripts/vpn-restart`, `scripts/tunnel-ssh` (bash, private) |
-| `commands/restart_commands.py` | Replaced by `scripts/restart` (bash, private, calls existing `/usr/local/bin/restart_device`) |
-| `commands/windows_commands.py` | Replaced by symlink: `scripts/shutdown-nuky` → `/usr/local/bin/shutdown-nuky` |
-| `commands/exec_commands.py` | Moved to `builtins/exec.py` (unchanged logic) |
-| `commands/url_fetch.py` | Moved to `builtins/url.py` (unchanged logic) |
-| `commands/vps_torrent_commands.py` | Renamed to `vps_torrent.py`, moved to private `scripts/` (Ansible-managed). Class renamed `VpsTorrentHandler`. |
-| `utils/vps_torrent.py` | Stays at `utils/vps_torrent.py` — called as subprocess by the plugin, not a command itself. |
+`requests` and `beautifulsoup4` remain (used by `builtin/url` via `fetch_clean_url.py`). `python-telegram-bot`, `nest_asyncio` remain. The bot itself no longer needs anything new.
 
 ---
 
 ## Documentation
 
-The `README.md` is rewritten to reflect the new mental model:
-
-- **How to add a command:** drop an executable script in `scripts/`, add a `# description:` line, done.
-- **How to add a complex command:** create a `.py` file with a `BaseCommandHandler` subclass in `scripts/`.
-- **How to make a script available on the host too:** put it in `/usr/local/bin/`, symlink into `scripts/`.
-- Remove all references to `commands/`, `BaseCommandHandler` boilerplate examples, old plugin architecture.
-- Keep the sudoers section and security section (`exec` docs).
-
----
-
-## Ansible Role Changes (`roles/telegram-bot`)
-
-The existing role (`roles/telegram-bot/tasks/main.yml`) needs these changes:
-
-### New tasks
-- Create `{{ telegram_bot_install_dir }}/scripts/` directory (owned by `telegrambot`, mode `0755`)
-- Deploy `vpn-restart` bash script to `scripts/vpn-restart` (new template: one-liner `sudo systemctl restart openvpn.service`)
-- Deploy `tunnel-ssh` bash script to `scripts/tunnel-ssh` (new template: one-liner `sudo systemctl restart ssh-tunnel`)
-- Deploy `restart` bash script to `scripts/restart` (new template: thin wrapper calling `/usr/local/bin/restart_device "$@"`)
-- Create symlink: `scripts/shutdown-nuky` → `/usr/local/bin/shutdown-nuky`
-
-### Changed tasks
-- "Deploy vps_torrent_commands.py to telegrambot commands dir" → change destination to `scripts/vps_torrent.py`, rename template to `vps_torrent.py.j2`
-- "Clone telegrambot repo" — after repo restructure, the `commands/` dir will be gone from git. Add a one-time cleanup task to remove `{{ telegram_bot_install_dir }}/commands/` if it exists (using `file: state=absent`)
-
-### No change needed
-- `restart_device`, `shutdown-nuky`, `ssh-port-forward.sh` deploy tasks — these already target `/usr/local/bin/`, unchanged
-- `vps_torrent.py` (lifecycle script in `utils/`), `vps_torrent_config.json`, `config.py`, systemd service — all unchanged
-- sudoers, user creation, venv, pip install — all unchanged
+Rewrite `README.md` around the new model:
+- The bot runs scripts from a folder. Filename = command.
+- Add a command: drop an executable in `scripts/` with a `# description:` line. Or, on this fleet, add one line to `host_vars`.
+- Expose a `/usr/local/bin` tool to the bot: add a `link:` entry.
+- The one built-in special command: `exec` (with its security notes + sudoers section, kept).
+- Remove all references to `commands/`, `BaseCommandHandler`, the plugin architecture, individual-handler testing.
 
 ---
 
-## Known Issues Fixed (from audit)
+## Out of scope / manual
 
-These are addressed during the rewrite:
+Per the operator's rule, the playbook describes the **fresh-install desired state only** — no remove/fix/migration tasks. Cleanup of the *existing* raspberrino deploy (stale `commands/` dir, old in-bot torrent handler, etc.) is a one-time **manual** checklist, kept separate from the playbook.
 
-- `exec`: use `secrets.choice` instead of `random.choice` for password generation
-- `exec`: pass stored command as argument, not embedded in bash script text
-- `vps_torrent` watcher: add error notification instead of silently swallowing exceptions
-- `vps_torrent._load_cfg()`: add error handling for missing config file
+`extras/` sample files in the repo are kept as-is (reference only, not used at runtime).
