@@ -1,4 +1,0 @@
-check process TelegramBot with pidfile /<repo_path>/telegrambot/telegrambot.pid
-    start program = "/bin/su - user1 -c /usr/local/bin/telegrambot_start"
-    stop program = "/bin/bash -c 'kill $(cat /<repo_path>/telegrambot/telegrambot.pid)'"
-    if 5 restarts within 5 cycles then timeout
