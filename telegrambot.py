@@ -24,6 +24,8 @@ logging.basicConfig(
     level=getattr(logging, log_level.upper(), logging.INFO),
 )
 logger = logging.getLogger(__name__)
+# httpx logs every request URL at INFO, and Telegram URLs carry the bot token.
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 
 class TelegramBot:
