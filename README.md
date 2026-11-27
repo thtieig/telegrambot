@@ -39,6 +39,47 @@ Line 2 (`# description: ...`) is shown in the help listing. It is optional.
 To expose an existing `/usr/local/bin` tool that needs root, add a tiny wrapper
 in `scripts/` that calls it via `sudo`.
 
+## Buttons (rich output)
+
+Every script run gets these environment variables:
+
+- `TG_CHAT_ID`: the chat the command came from (always set).
+- `TG_TRIGGER`: `text` (typed message) or `button` (an inline button was tapped).
+- `TG_MESSAGE_ID`: id of the message whose button was tapped (button trigger only).
+
+If stdout starts with the exact line `#telegram-json`, the rest is one JSON object
+(the object may also follow the marker on the same line):
+
+```json
+{"text": "Move Mummies (2023)?",
+ "buttons": [[{"text": "Yes", "cmd": "tidy yes abc123"}, {"text": "No", "cmd": "tidy close"}]],
+ "edit": true, "silent": false}
+```
+
+- `text`: the message text.
+- `buttons`: optional rows of inline buttons. `cmd` is handled exactly like typed
+  text when tapped (same command lookup, same authorisation), with `TG_TRIGGER=button`.
+  `cmd` is limited to 64 bytes (UTF-8); longer buttons are dropped with a log warning.
+- `edit`: defaults to true for a button tap, which edits the tapped message (text and
+  buttons; no buttons removes the keyboard). `false`, or a typed trigger, sends a new message.
+- `silent`: true sends nothing (use when a background worker will message or edit by itself).
+
+Malformed JSON is sent as plain text. Output without the marker behaves as before.
+A detached worker can put the same buttons in `reply_markup` itself (`inline_keyboard`,
+`callback_data` = the `cmd` string) and taps on its messages work too.
+
+Example (`scripts/ask`):
+
+```bash
+#!/bin/bash
+# description: Example with buttons
+cat <<JSON
+#telegram-json
+{"text": "Trigger was ${TG_TRIGGER}. Pick one:",
+ "buttons": [[{"text": "Uptime", "cmd": "uptime"}, {"text": "Disk", "cmd": "df"}]]}
+JSON
+```
+
 ## The `exec` built-in
 
 `exec <any shell command>` runs an arbitrary command — guarded by email

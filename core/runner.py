@@ -2,9 +2,9 @@
 import subprocess
 
 
-def run_command(argv: list, timeout: int = 30) -> str:
+def run_command(argv: list, timeout: int = 30, env: dict = None) -> str:
     try:
-        out = subprocess.check_output(argv, stderr=subprocess.STDOUT, timeout=timeout)
+        out = subprocess.check_output(argv, stderr=subprocess.STDOUT, timeout=timeout, env=env)
         return out.decode("utf-8", errors="replace")
     except subprocess.CalledProcessError as e:
         return e.output.decode("utf-8", errors="replace")
